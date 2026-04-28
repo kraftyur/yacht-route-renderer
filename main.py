@@ -21,6 +21,7 @@ from shapely.geometry import shape, Point, LineString
 from shapely.ops import unary_union
 from shapely.prepared import prep
 import time
+from typing import List, Optional, Dict
 
 
 app = FastAPI(title="Yacht Route Map Renderer")
@@ -162,7 +163,8 @@ class RouteRequest(BaseModel):
     # presentation | route | marine | local
     map_detail: str = "route"
 
-    leg_distances_nm: list[float | None] | None = None
+    leg_distances_nm: Optional[List[Optional[float]]] = None
+    leg_distances_nm_by_leg: Optional[Dict[str, float]] = None
 
     # Если эти поля явно переданы, они переопределяют map_detail.
     show_labels: bool | None = None
@@ -252,14 +254,22 @@ def nm_distance(a: Waypoint, b: Waypoint) -> float:
 
 def leg_distance_nm(a: Waypoint, b: Waypoint, leg_index: int, req: RouteRequest) -> float:
     """
-    Возвращает расстояние плеча:
-    - если GPT/API передал leg_distances_nm[leg_index], используем его;
-    - иначе считаем геодезическое расстояние по координатам.
+    Distance priority:
+    1. leg_distances_nm_by_leg["0"], ["1"], ... for known partial distances.
+    2. leg_distances_nm[leg_index] if provided.
+    3. Calculated geodesic distance from coordinates.
     """
+    if req.leg_distances_nm_by_leg is not None:
+        key = str(leg_index)
+        if key in req.leg_distances_nm_by_leg:
+            try:
+                return float(req.leg_distances_nm_by_leg[key])
+            except (TypeError, ValueError):
+                pass
+
     if req.leg_distances_nm is not None:
         if 0 <= leg_index < len(req.leg_distances_nm):
             provided = req.leg_distances_nm[leg_index]
-
             if provided is not None:
                 try:
                     return float(provided)
