@@ -3,9 +3,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List
 from geopy.distance import geodesic
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
 import uuid
 import os
 
@@ -63,35 +63,20 @@ def render_route_map(req: RouteRequest):
     min_lat = min(lats) - margin_lat
     max_lat = max(lats) + margin_lat
 
-    fig = plt.figure(figsize=(12, 8), dpi=180)
-    ax = plt.axes(projection=ccrs.Mercator())
+    fig, ax = plt.subplots(figsize=(12, 8), dpi=180)
 
-    ax.set_extent([min_lon, max_lon, min_lat, max_lat], crs=ccrs.PlateCarree())
-
-    ax.add_feature(cfeature.LAND, zorder=0)
-    ax.add_feature(cfeature.OCEAN, zorder=0)
-    ax.add_feature(cfeature.COASTLINE, linewidth=0.8)
-    ax.add_feature(cfeature.BORDERS, linewidth=0.3, alpha=0.5)
-
-    gl = ax.gridlines(draw_labels=True, linewidth=0.2, alpha=0.4)
-    gl.top_labels = False
-    gl.right_labels = False
+    # Простая "морская" подложка без cartopy
+    ax.set_facecolor("#dfefff")
+    fig.patch.set_facecolor("white")
 
     if req.show_route_lines:
-        ax.plot(
-            lons,
-            lats,
-            linewidth=2.2,
-            marker="o",
-            transform=ccrs.PlateCarree(),
-            zorder=5,
-        )
+        ax.plot(lons, lats, linewidth=2.2, marker="o", zorder=5)
 
     for p in req.waypoints:
         if p.type == "marina":
             symbol = "M"
         elif p.type == "anchorage":
-            symbol = "⚓"
+            symbol = "A"
         elif p.type == "harbor":
             symbol = "H"
         else:
@@ -101,7 +86,6 @@ def render_route_map(req: RouteRequest):
             p.lon,
             p.lat,
             symbol,
-            transform=ccrs.PlateCarree(),
             fontsize=13,
             ha="center",
             va="center",
@@ -113,7 +97,6 @@ def render_route_map(req: RouteRequest):
                 p.lon + 0.035,
                 p.lat + 0.025,
                 p.name,
-                transform=ccrs.PlateCarree(),
                 fontsize=8,
                 zorder=6,
             )
@@ -128,22 +111,27 @@ def render_route_map(req: RouteRequest):
                 mid_lon,
                 mid_lat,
                 f"{dist:.0f} NM",
-                transform=ccrs.PlateCarree(),
                 fontsize=8,
                 ha="center",
                 bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.75),
                 zorder=7,
             )
 
-    plt.title(req.title, fontsize=14)
+    ax.set_xlim(min_lon, max_lon)
+    ax.set_ylim(min_lat, max_lat)
+    ax.grid(True, linewidth=0.3, alpha=0.4)
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.set_title(req.title, fontsize=14)
+
     plt.tight_layout()
     plt.savefig(filepath, bbox_inches="tight")
     plt.close(fig)
 
-    # ВАЖНО: пока оставляем локальный относительный путь.
-    # После деплоя на Render заменим на настоящий домен.
+    base_url = "https://ТВОЙ-АДРЕС.onrender.com"
+
     return {
-        "image_url": f"/static/maps/{filename}",
+        "image_url": f"{base_url}/static/maps/{filename}",
         "bounds": [min_lon, min_lat, max_lon, max_lat],
         "format": "png",
     }
