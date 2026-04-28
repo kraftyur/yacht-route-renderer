@@ -406,8 +406,11 @@ def point_label_position(i, point_pixels):
 
 @app.get("/")
 def root():
-    return {"status": "ok", "service": "Yacht Route Map Renderer"}
-
+    return {
+        "status": "ok",
+        "service": "Yacht Route Map Renderer",
+        "land_mask_loaded": LAND_GEOM is not None
+    }
 
 @app.post("/render-route-map")
 def render_route_map(req: RouteRequest):
