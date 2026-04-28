@@ -128,7 +128,7 @@ def render_route_map(req: RouteRequest):
     plt.savefig(filepath, bbox_inches="tight")
     plt.close(fig)
 
-    base_url = "https://ТВОЙ-АДРЕС.onrender.com"
+    base_url = "https://yacht-route-renderer.onrender.com"
 
     return {
         "image_url": f"{base_url}/static/maps/{filename}",
