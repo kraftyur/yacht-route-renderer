@@ -28,12 +28,22 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 TILE_SIZE = 256
 CARTO_TILE_SUBDOMAINS = ["a", "b", "c", "d"]
-OSM_TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+BASE_TILE_URLS = [
+    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+    "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+]
 OPENSEAMAP_SEAMARK_TILE_URL = "https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png"
 USER_AGENT = "yacht-route-renderer/0.1"
 
 def pick_subdomain(x: int, y: int):
     return CARTO_TILE_SUBDOMAINS[(x + y) % len(CARTO_TILE_SUBDOMAINS)]
+
+def format_tile_url(tile_url: str, z: int, x: int, y: int):
+    if "{s}" in tile_url:
+        s = pick_subdomain(x, y)
+        return tile_url.format(s=s, z=z, x=x, y=y)
+
+    return tile_url.format(z=z, x=x, y=y)
     
 session = requests.Session()
 session.headers.update({"User-Agent": USER_AGENT})
@@ -263,23 +273,32 @@ def estimate_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=24, max_zoom=12)
             return z
     return 3
 
-def fetch_tile_from_url(tile_url: str, z: int, x: int, y: int, retries=3) -> Image.Image:
+def fetch_tile_from_url(tile_url: str, z: int, x: int, y: int, retries=2) -> Image.Image:
     max_index = 2 ** z
     x = x % max_index
 
     if y < 0 or y >= max_index:
         return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 0))
 
-    subdomain = pick_subdomain(x, y)
-    url = tile_url.format(s=subdomain, z=z, x=x, y=y)
-
+    url = format_tile_url(tile_url, z, x, y)
     last_error = None
 
     for attempt in range(retries):
         try:
             resp = session.get(url, timeout=30)
+
+            if resp.status_code == 404:
+                last_error = f"404 for {url}"
+                break
+
             resp.raise_for_status()
+
+            if not resp.content:
+                last_error = f"empty response for {url}"
+                continue
+
             return Image.open(BytesIO(resp.content)).convert("RGBA")
+
         except Exception as e:
             last_error = e
             time.sleep(0.4 * (attempt + 1))
@@ -288,15 +307,16 @@ def fetch_tile_from_url(tile_url: str, z: int, x: int, y: int, retries=3) -> Ima
     return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 0))
 
 
-def fetch_base_tile(z: int, x: int, y: int) -> tuple[Image.Image, bool]:
-    tile = fetch_tile_from_url(OSM_TILE_URL, z, x, y)
+def fetch_base_tile(z: int, x: int, y: int) -> tuple[Image.Image, bool, str]:
+    for tile_url in BASE_TILE_URLS:
+        tile = fetch_tile_from_url(tile_url, z, x, y)
 
-    # если tile полностью пустой
-    if tile.getbbox() is None:
-        fallback = Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (235, 235, 235, 255))
-        return fallback, False
+        if tile.getbbox() is not None:
+            provider = "carto_voyager" if "cartocdn" in tile_url else "osm"
+            return tile, True, provider
 
-    return tile, True
+    fallback = Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (235, 235, 235, 255))
+    return fallback, False, "fallback_gray"
     
 
 def fetch_overlay_tile(tile_url: str, z: int, x: int, y: int) -> Image.Image:
@@ -336,10 +356,18 @@ def build_osm_background(
 
     failed_tiles = 0
     loaded_tiles = 0
+
+    provider_stats = {
+        "carto_voyager": 0,
+        "osm": 0,
+        "fallback_gray": 0,
+    }
     
     for ty in range(y_start, y_end + 1):
         for tx in range(x_start, x_end + 1):
-            base_tile, ok = fetch_base_tile(zoom, tx, ty)
+            base_tile, ok, provider = fetch_base_tile(zoom, tx, ty)
+
+            provider_stats[provider] = provider_stats.get(provider, 0) + 1
     
             if ok:
                 loaded_tiles += 1
@@ -374,6 +402,7 @@ def build_osm_background(
         "height": cropped.size[1],
         "failed_tiles": failed_tiles,
         "loaded_tiles": loaded_tiles,
+        "provider_stats": provider_stats,
     }
 
     return cropped, meta
@@ -726,4 +755,5 @@ def render_route_map(req: RouteRequest):
         "show_nm_distances": cfg["show_nm_distances"],
         "loaded_tiles": meta["loaded_tiles"],
         "failed_tiles": meta["failed_tiles"],
+        "provider_stats": meta["provider_stats"],
     }
