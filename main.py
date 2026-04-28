@@ -555,8 +555,9 @@ def choose_curve_lonlat(a_wp, b_wp, curve_mode="auto", preferred_curvature=0.14)
         )
         return curve, preferred_curvature
 
-    candidates = [-0.22, -0.14, -0.08, 0.08, 0.14, 0.22]
-
+    candidates = [-0.35, -0.28, -0.22, -0.16, -0.10, -0.06,
+                   0.06,  0.10,  0.16,  0.22,  0.28,  0.35]
+    
     best_curve = None
     best_curvature = None
     best_score = None
@@ -603,8 +604,8 @@ def point_label_position(i, point_pixels):
 
     side = 1 if i % 2 == 0 else -1
 
-    label_x = x + nx * 24 * side + tx * 8
-    label_y = y + ny * 24 * side + ty * 8
+    label_x = x + nx * 20 * side + tx * 8
+    label_y = y + ny * 20 * side + ty * 8
 
     ha = "left" if label_x >= x else "right"
     return label_x, label_y, ha
@@ -771,7 +772,7 @@ def render_route_map(req: RouteRequest):
                 lx,
                 ly,
                 p.name,
-                fontsize=10,
+                fontsize=12,
                 ha=ha,
                 va="center",
                 zorder=9,
