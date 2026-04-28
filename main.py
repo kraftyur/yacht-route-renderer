@@ -760,9 +760,9 @@ def render_route_map(req: RouteRequest):
     # иконки точек + подписи точек
     for i, (p, (x, y)) in enumerate(zip(render_waypoints, point_pixels)):
         if p.type == "anchorage":
-            draw_point_icon(ax, x, y, ANCHOR_ICON, circle_radius=8, zoom=0.25)
+            draw_point_icon(ax, x, y, ANCHOR_ICON, circle_radius=8, zoom=0.20)
         else:
-            draw_point_icon(ax, x, y, BOAT_ICON, circle_radius=8, zoom=0.24)
+            draw_point_icon(ax, x, y, BOAT_ICON, circle_radius=8, zoom=0.19)
     
         if cfg["show_labels"]:
             lx, ly, ha = point_label_position(i, point_pixels)
