@@ -143,16 +143,73 @@ class RouteRequest(BaseModel):
     waypoints: List[Waypoint]
     output_format: str = "png"
     style: str = "nautical_schematic"
-    show_labels: bool = True
-    show_nm_distances: bool = True
+
+    # presentation | route | marine | local
+    map_detail: str = "route"
+
+    # Если эти поля явно переданы, они переопределяют map_detail.
+    show_labels: bool | None = None
+    show_nm_distances: bool | None = None
     show_route_lines: bool = True
     show_coastline: bool = True
-    show_seamarks: bool = False
+    show_seamarks: bool | None = None
     show_direction_arrows: bool = True
+
     # auto | fixed | straight
     curve_mode: str = "auto"
-    # используется как базовый/предпочтительный изгиб
-    route_curvature: float = 0.14
+
+    # Если явно передан, переопределяет map_detail.
+    route_curvature: float | None = None
+
+def apply_map_detail(req: RouteRequest):
+    """
+    Возвращает словарь с финальными настройками карты.
+    Явно переданные параметры имеют приоритет над map_detail.
+    """
+    presets = {
+        "presentation": {
+            "show_labels": True,
+            "show_nm_distances": True,
+            "show_seamarks": False,
+            "route_curvature": 0.12,
+        },
+        "route": {
+            "show_labels": True,
+            "show_nm_distances": True,
+            "show_seamarks": False,
+            "route_curvature": 0.14,
+        },
+        "marine": {
+            "show_labels": True,
+            "show_nm_distances": True,
+            "show_seamarks": True,
+            "route_curvature": 0.14,
+        },
+        "local": {
+            "show_labels": True,
+            "show_nm_distances": False,
+            "show_seamarks": True,
+            "route_curvature": 0.08,
+        },
+    }
+
+    detail = req.map_detail if req.map_detail in presets else "route"
+    cfg = presets[detail].copy()
+
+    if req.show_labels is not None:
+        cfg["show_labels"] = req.show_labels
+
+    if req.show_nm_distances is not None:
+        cfg["show_nm_distances"] = req.show_nm_distances
+
+    if req.show_seamarks is not None:
+        cfg["show_seamarks"] = req.show_seamarks
+
+    if req.route_curvature is not None:
+        cfg["route_curvature"] = req.route_curvature
+
+    cfg["map_detail"] = detail
+    return cfg
 
 
 def nm_distance(a: Waypoint, b: Waypoint) -> float:
@@ -434,6 +491,8 @@ def render_route_map(req: RouteRequest):
     if len(req.waypoints) < 2:
         return {"error": "At least two waypoints are required"}
 
+    cfg = apply_map_detail(req)
+    
     route_id = str(uuid.uuid4())[:8]
     filename = f"route-{route_id}.png"
     filepath = f"static/maps/{filename}"
@@ -454,7 +513,7 @@ def render_route_map(req: RouteRequest):
         min_lat,
         max_lon,
         max_lat,
-        show_seamarks=req.show_seamarks,
+        show_seamarks=cfg["show_seamarks"],
     )
     width, height = bg_img.size
     fig_w = 12
@@ -474,7 +533,7 @@ def render_route_map(req: RouteRequest):
             a_wp,
             b_wp,
             curve_mode=req.curve_mode,
-            preferred_curvature=req.route_curvature,
+            preferred_curvature=cfg["route_curvature"],
         )
 
         curve_pixels = [latlon_to_image_px(lat, lon, meta) for lon, lat in curve_lonlat]
@@ -489,7 +548,7 @@ def render_route_map(req: RouteRequest):
 
     ROUTE_COLOR = "#1f77b4"
 
-    # 1) линии маршрута + стрелки
+    # линии маршрута + стрелки
     if req.show_route_lines:
         for seg in segments:
             xs = [pt[0] for pt in seg["curve_pixels"]]
@@ -536,14 +595,14 @@ def render_route_map(req: RouteRequest):
     
                 seg["arrow_label_pos"] = (label_x, label_y)
 
-    # 2) иконки точек + подписи точек
+    # иконки точек + подписи точек
     for i, (p, (x, y)) in enumerate(zip(req.waypoints, point_pixels)):
         if p.type == "anchorage":
             draw_point_icon(ax, x, y, ANCHOR_ICON, circle_radius=8, zoom=0.27)
         else:
             draw_point_icon(ax, x, y, BOAT_ICON, circle_radius=8, zoom=0.26)
     
-        if req.show_labels:
+        if cfg["show_labels"]:
             lx, ly, ha = point_label_position(i, point_pixels)
     
             ax.text(
@@ -557,8 +616,8 @@ def render_route_map(req: RouteRequest):
                 bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="none", alpha=0.88),
             )
 
-    # 3) подписи расстояний со смещением в сторону дуги
-    if req.show_nm_distances:
+    # подписи расстояний со смещением в сторону дуги
+    if cfg["show_nm_distances"]:
         for seg in segments:
             dist = nm_distance(seg["a_wp"], seg["b_wp"])
     
@@ -595,4 +654,7 @@ def render_route_map(req: RouteRequest):
         "image_url": f"{base_url}/static/maps/{filename}",
         "format": "png",
         "zoom": meta["zoom"],
+        "map_detail": cfg["map_detail"],
+        "show_seamarks": cfg["show_seamarks"],
+        "show_nm_distances": cfg["show_nm_distances"],
     }
