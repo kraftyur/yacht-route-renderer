@@ -9,6 +9,7 @@ from geopy.distance import geodesic
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 import uuid
 import os
 import math
@@ -20,6 +21,7 @@ from shapely.geometry import shape, Point, LineString
 from shapely.ops import unary_union
 from shapely.prepared import prep
 import time
+
 
 app = FastAPI(title="Yacht Route Map Renderer")
 
@@ -607,6 +609,22 @@ def point_label_position(i, point_pixels):
     ha = "left" if label_x >= x else "right"
     return label_x, label_y, ha
 
+
+def same_waypoint(a: Waypoint, b: Waypoint, tol=0.0001) -> bool:
+    return abs(a.lat - b.lat) <= tol and abs(a.lon - b.lon) <= tol
+
+
+def normalize_route_waypoints(waypoints: list[Waypoint]):
+    """
+    Если маршрут кольцевой и последняя точка совпадает с первой,
+    убираем последнюю из списка отображаемых точек, но помечаем маршрут как closed.
+    """
+    if len(waypoints) >= 3 and same_waypoint(waypoints[0], waypoints[-1]):
+        return waypoints[:-1], True
+
+    return waypoints, False
+
+
 @app.get("/")
 def root():
     return {
@@ -619,15 +637,20 @@ def root():
 def render_route_map(req: RouteRequest):
     if len(req.waypoints) < 2:
         return {"error": "At least two waypoints are required"}
+    
+    render_waypoints, is_closed_route = normalize_route_waypoints(req.waypoints)
 
+    if len(render_waypoints) < 2:
+        return {"error": "At least two distinct waypoints are required"}
+    
     cfg = apply_map_detail(req)
     
     route_id = str(uuid.uuid4())[:8]
     filename = f"route-{route_id}.png"
     filepath = f"static/maps/{filename}"
 
-    lats = [p.lat for p in req.waypoints]
-    lons = [p.lon for p in req.waypoints]
+    lats = [p.lat for p in render_waypoints]
+    lons = [p.lon for p in render_waypoints]
 
     lat_span = max(lats) - min(lats)
     lon_span = max(lons) - min(lons)
@@ -661,18 +684,20 @@ def render_route_map(req: RouteRequest):
     # рисуем картинку в пиксельной системе координат
     ax.imshow(bg_img, zorder=0)
 
-    point_pixels = [latlon_to_image_px(p.lat, p.lon, meta) for p in req.waypoints]
+    point_pixels = [latlon_to_image_px(p.lat, p.lon, meta) for p in render_waypoints]
 
     segments = []
     
-    for a_wp, b_wp in zip(req.waypoints[:-1], req.waypoints[1:]):
+    segment_waypoints = render_waypoints + [render_waypoints[0]] if is_closed_route else render_waypoints
+    
+    for a_wp, b_wp in zip(segment_waypoints[:-1], segment_waypoints[1:]):
         curve_lonlat, chosen_curvature = choose_curve_lonlat(
             a_wp,
             b_wp,
             curve_mode=req.curve_mode,
             preferred_curvature=cfg["route_curvature"],
         )
-
+    
         curve_pixels = [latlon_to_image_px(lat, lon, meta) for lon, lat in curve_lonlat]
     
         segments.append({
@@ -733,11 +758,11 @@ def render_route_map(req: RouteRequest):
                 seg["arrow_label_pos"] = (label_x, label_y)
 
     # иконки точек + подписи точек
-    for i, (p, (x, y)) in enumerate(zip(req.waypoints, point_pixels)):
+    for i, (p, (x, y)) in enumerate(zip(render_waypoints, point_pixels)):
         if p.type == "anchorage":
-            draw_point_icon(ax, x, y, ANCHOR_ICON, circle_radius=8, zoom=0.27)
+            draw_point_icon(ax, x, y, ANCHOR_ICON, circle_radius=8, zoom=0.25)
         else:
-            draw_point_icon(ax, x, y, BOAT_ICON, circle_radius=8, zoom=0.26)
+            draw_point_icon(ax, x, y, BOAT_ICON, circle_radius=8, zoom=0.24)
     
         if cfg["show_labels"]:
             lx, ly, ha = point_label_position(i, point_pixels)
@@ -746,12 +771,17 @@ def render_route_map(req: RouteRequest):
                 lx,
                 ly,
                 p.name,
-                fontsize=12,
+                fontsize=10,
                 ha=ha,
                 va="center",
                 zorder=9,
-                bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="none", alpha=0.88),
+                color="black",
             )
+            
+            label_text.set_path_effects([
+                pe.Stroke(linewidth=3.0, foreground="white"),
+                pe.Normal(),
+            ])
 
     # подписи расстояний со смещением в сторону дуги
     if cfg["show_nm_distances"]:
@@ -768,11 +798,12 @@ def render_route_map(req: RouteRequest):
             ax.text(
                 label_x,
                 label_y,
-                f"{dist:.0f} NM",
-                fontsize=12,
+                f"{dist:.0f}nm",
+                fontsize=10,
                 ha="center",
                 va="center",
-                bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.90),
+                color=ROUTE_COLOR,
+                fontweight="bold",
                 zorder=8,
             )
 
@@ -797,4 +828,7 @@ def render_route_map(req: RouteRequest):
         "loaded_tiles": meta["loaded_tiles"],
         "failed_tiles": meta["failed_tiles"],
         "base_provider": meta["base_provider"],
+        "closed_route": is_closed_route,
+        "displayed_waypoints": len(render_waypoints),
+        "input_waypoints": len(req.waypoints),
     }
