@@ -162,6 +162,8 @@ class RouteRequest(BaseModel):
     # presentation | route | marine | local
     map_detail: str = "route"
 
+    leg_distances_nm: list[float | None] | None = None
+
     # Если эти поля явно переданы, они переопределяют map_detail.
     show_labels: bool | None = None
     show_nm_distances: bool | None = None
@@ -247,6 +249,25 @@ def nm_distance(a: Waypoint, b: Waypoint) -> float:
     km = geodesic((a.lat, a.lon), (b.lat, b.lon)).km
     return km / 1.852
 
+
+def leg_distance_nm(a: Waypoint, b: Waypoint, leg_index: int, req: RouteRequest) -> float:
+    """
+    Возвращает расстояние плеча:
+    - если GPT/API передал leg_distances_nm[leg_index], используем его;
+    - иначе считаем геодезическое расстояние по координатам.
+    """
+    if req.leg_distances_nm is not None:
+        if 0 <= leg_index < len(req.leg_distances_nm):
+            provided = req.leg_distances_nm[leg_index]
+
+            if provided is not None:
+                try:
+                    return float(provided)
+                except (TypeError, ValueError):
+                    pass
+
+    return nm_distance(a, b)
+    
 
 def latlon_to_tile_xy(lat: float, lon: float, zoom: int):
     lat = max(min(lat, 85.05112878), -85.05112878)
@@ -691,7 +712,7 @@ def render_route_map(req: RouteRequest):
     
     segment_waypoints = render_waypoints + [render_waypoints[0]] if is_closed_route else render_waypoints
     
-    for a_wp, b_wp in zip(segment_waypoints[:-1], segment_waypoints[1:]):
+    for leg_index, (a_wp, b_wp) in enumerate(zip(segment_waypoints[:-1], segment_waypoints[1:])):
         curve_lonlat, chosen_curvature = choose_curve_lonlat(
             a_wp,
             b_wp,
@@ -702,6 +723,7 @@ def render_route_map(req: RouteRequest):
         curve_pixels = [latlon_to_image_px(lat, lon, meta) for lon, lat in curve_lonlat]
     
         segments.append({
+            "leg_index": leg_index,
             "a_wp": a_wp,
             "b_wp": b_wp,
             "curve_lonlat": curve_lonlat,
@@ -787,7 +809,12 @@ def render_route_map(req: RouteRequest):
     # подписи расстояний со смещением в сторону дуги
     if cfg["show_nm_distances"]:
         for seg in segments:
-            dist = nm_distance(seg["a_wp"], seg["b_wp"])
+            dist = leg_distance_nm(
+                seg["a_wp"],
+                seg["b_wp"],
+                seg["leg_index"],
+                req,
+            )
     
             if seg.get("arrow_label_pos") is not None:
                 label_x, label_y = seg["arrow_label_pos"]
@@ -799,7 +826,7 @@ def render_route_map(req: RouteRequest):
             ax.text(
                 label_x,
                 label_y,
-                f"{dist:.0f}nm",
+                f"{dist:.0f} nm",
                 fontsize=10,
                 ha="center",
                 va="center",
@@ -832,4 +859,5 @@ def render_route_map(req: RouteRequest):
         "closed_route": is_closed_route,
         "displayed_waypoints": len(render_waypoints),
         "input_waypoints": len(req.waypoints),
+        "input_leg_distances": req.leg_distances_nm,
     }
