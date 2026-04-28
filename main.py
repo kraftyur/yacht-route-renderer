@@ -767,7 +767,7 @@ def render_route_map(req: RouteRequest):
         if cfg["show_labels"]:
             lx, ly, ha = point_label_position(i, point_pixels)
     
-            ax.text(
+            label_text = ax.text(
                 lx,
                 ly,
                 p.name,
