@@ -2,7 +2,11 @@ openapi: 3.1.0
 info:
   title: Yacht Route Map Renderer
   version: 1.0.0
-  description: Render yacht route maps using real map tiles, OpenSeaMap overlay, land polygons, curved route legs, icons, arrows, and nautical-mile labels.
+  description: >
+    Render yacht route maps using real map tiles, optional OpenSeaMap seamark overlay,
+    land-aware curved route legs, direction arrows, custom stop icons, nautical-mile labels,
+    partial or complete leg distance overrides, and total route distance calculation.
+
 servers:
   - url: https://yacht-route-renderer.onrender.com
 
@@ -11,7 +15,11 @@ paths:
     post:
       operationId: renderRouteMap
       summary: Render a yacht route map from waypoints
-      description: Creates a PNG route map from geographic waypoints. Supports map detail presets, OpenSeaMap seamarks, curved legs, arrows, nautical mile labels, and automatic curve selection around land.
+      description: >
+        Creates a PNG route map from geographic waypoints. Supports map detail presets,
+        OpenSeaMap seamarks, automatic land-aware route curves, direction arrows,
+        nautical mile labels, partial or complete input leg distances, and total route
+        distance in nautical miles.
       requestBody:
         required: true
         content:
@@ -25,12 +33,15 @@ paths:
                 title:
                   type: string
                   description: Title to display on the rendered map.
-                  example: "Marina Kallitheas — Sounion — Monemvasia — Milos"
+                  example: "Athens — Sounion — Syros — Antiparos — Sifnos — Milos"
 
                 waypoints:
                   type: array
                   minItems: 2
-                  description: Ordered route points.
+                  description: >
+                    Ordered route points. If the route is circular, the final waypoint may duplicate
+                    the first waypoint; the renderer suppresses the duplicate marker while preserving
+                    the closing route leg.
                   items:
                     type: object
                     required:
@@ -53,7 +64,9 @@ paths:
                         example: 24.024
                       type:
                         type: string
-                        description: Type of waypoint. Anchorages are rendered with an anchor icon; marinas, harbors, towns and waypoints are rendered with a boat icon.
+                        description: >
+                          Type of waypoint. Anchorages are rendered with an anchor icon.
+                          Marinas, harbors, towns and generic waypoints are rendered with a boat icon.
                         enum:
                           - marina
                           - anchorage
@@ -62,22 +75,39 @@ paths:
                           - waypoint
                         example: anchorage
 
-              leg_distances_nm_by_leg:
-                type: object
-                description: Optional partial nautical-mile distances keyed by zero-based route leg index. Use this when only some leg distances are known from a reliable source. For example, "0" is the distance from waypoint 1 to waypoint 2, "1" from waypoint 2 to waypoint 3. Do not invent distances. Omit unknown legs.
-                additionalProperties:
-                  type: number
-                example:
-                  "0": 25
-                  "2": 61
-                  
-              leg_distances_nm:
-                type: array
-                description: Optional complete list of nautical-mile distances for each route leg. Prefer leg_distances_nm_by_leg when only some distances are known. For N waypoints, provide N-1 distances; for circular routes with the final waypoint duplicating the first, include the closing leg distance as the final value. Omit this field if distances should be calculated automatically.
-                items:
-                  type: number
-                example: [25, 54, 61, 72]
-  
+                leg_distances_nm_by_leg:
+                  type: object
+                  description: >
+                    Optional partial nautical-mile distances keyed by zero-based route leg index.
+                    Use this when only some leg distances are known from a reliable source.
+                    For example, "0" is waypoint 1 to waypoint 2, "1" is waypoint 2 to waypoint 3.
+                    Do not invent distances. Omit unknown legs; the renderer will calculate them.
+                    For circular routes with the final waypoint duplicating the first, the final leg
+                    index is the closing leg back to the start.
+                  additionalProperties:
+                    type: number
+                  example:
+                    "0": 28
+                    "2": 31
+                    "4": 22
+
+                leg_distances_nm:
+                  type: array
+                  description: >
+                    Optional complete list of nautical-mile distances for each route leg.
+                    Prefer leg_distances_nm_by_leg when only some distances are known.
+                    For N waypoints, provide N-1 distances. For circular routes with the final
+                    waypoint duplicating the first, include the closing leg distance as the final value.
+                    Omit this field if distances should be calculated automatically.
+                  items:
+                    type: number
+                  example:
+                    - 28
+                    - 54
+                    - 31
+                    - 24
+                    - 22
+
                 output_format:
                   type: string
                   enum:
@@ -102,21 +132,21 @@ paths:
                     - marine
                     - local
                   default: route
-                  description: Preset controlling map detail, seamarks, distances, curvature and zoom behavior.
+                  description: >
+                    Preset controlling map detail, seamarks, distances, curvature and zoom behavior.
+                    Use presentation for clean overview maps, route for normal multi-leg routes,
+                    marine for OpenSeaMap seamarks and nautical detail, and local for short
+                    close-range maps.
 
                 show_labels:
-                  type:
-                    - boolean
-                    - "null"
-                  default: null
-                  description: Override map_detail label behavior. If null, the preset decides.
+                  type: boolean
+                  description: Optional override for waypoint label display. Omit to use map_detail preset.
+                  example: true
 
                 show_nm_distances:
-                  type:
-                    - boolean
-                    - "null"
-                  default: null
-                  description: Override whether nautical mile distances are shown. If null, the preset decides.
+                  type: boolean
+                  description: Optional override for nautical-mile distance labels. Omit to use map_detail preset.
+                  example: true
 
                 show_route_lines:
                   type: boolean
@@ -126,14 +156,12 @@ paths:
                 show_coastline:
                   type: boolean
                   default: true
-                  description: Kept for compatibility; coastline comes from map tiles.
+                  description: Kept for compatibility. Coastline comes from map tiles.
 
                 show_seamarks:
-                  type:
-                    - boolean
-                    - "null"
-                  default: null
-                  description: Override whether OpenSeaMap seamarks are shown. If null, the preset decides.
+                  type: boolean
+                  description: Optional override for OpenSeaMap seamarks. Omit to use map_detail preset.
+                  example: false
 
                 show_direction_arrows:
                   type: boolean
@@ -147,14 +175,15 @@ paths:
                     - fixed
                     - straight
                   default: auto
-                  description: Auto uses land polygons to choose a curve that avoids land. Fixed uses a constant curvature. Straight draws straight route legs.
+                  description: >
+                    auto uses land polygons to choose a curve that avoids land.
+                    fixed uses a constant curvature. straight draws straight route legs.
 
                 route_curvature:
-                  type:
-                    - number
-                    - "null"
-                  default: null
-                  description: Override route curvature. Positive or negative values choose curve side in fixed mode. Null means use the map_detail preset.
+                  type: number
+                  description: >
+                    Optional override for route curvature. Positive or negative values choose curve
+                    side in fixed mode. Omit to use the map_detail preset.
                   example: 0.14
 
       responses:
@@ -169,98 +198,122 @@ paths:
                     type: string
                     description: Public URL of the generated PNG.
                     example: "https://yacht-route-renderer.onrender.com/static/maps/route-12345678.png"
-      
+
                   format:
                     type: string
+                    description: Output image format.
                     example: "png"
-      
+
                   zoom:
                     type: integer
+                    description: Final map tile zoom used by the renderer.
                     example: 12
-      
+
                   map_detail:
                     type: string
+                    description: Final map detail preset used.
                     example: "route"
-      
+
                   show_seamarks:
                     type: boolean
+                    description: Whether OpenSeaMap seamarks were enabled.
                     example: false
-      
+
                   show_nm_distances:
                     type: boolean
+                    description: Whether nautical-mile distance labels were enabled.
                     example: true
-      
+
                   loaded_tiles:
                     type: integer
+                    description: Number of base map tiles successfully loaded from the final provider.
                     example: 20
-      
+
                   failed_tiles:
                     type: integer
+                    description: Number of base map tiles that failed from the final provider.
                     example: 0
-      
+
                   base_provider:
                     type: string
                     description: Final base map provider used after fallback logic.
                     example: "voyager"
-      
+
                   closed_route:
                     type: boolean
-                    description: Whether the renderer treated the route as circular and suppressed the duplicate final marker.
+                    description: >
+                      Whether the renderer treated the route as circular and suppressed the duplicate
+                      final marker while preserving the closing route leg.
                     example: true
-      
+
                   input_waypoints:
                     type: integer
                     description: Number of waypoints received in the request.
                     example: 10
-      
+
                   displayed_waypoints:
                     type: integer
                     description: Number of unique waypoint markers displayed on the map.
                     example: 9
-      
+
                   input_leg_distances:
                     type: array
                     description: Complete list of input leg distances, if provided.
                     items:
                       type: number
-                    example: [25, 54, 61, 72]
-      
+                    example:
+                      - 28
+                      - 54
+                      - 31
+                      - 24
+                      - 22
+
                   input_leg_distances_by_leg:
                     type: object
                     description: Partial input leg distances keyed by zero-based leg index, if provided.
                     additionalProperties:
                       type: number
                     example:
-                      "0": 25
-                      "2": 61
-      
+                      "0": 28
+                      "2": 31
+                      "4": 22
+
                   leg_distances:
                     type: array
-                    description: Final nautical-mile distances used by the renderer for each leg, including whether each value was provided or calculated.
+                    description: >
+                      Final nautical-mile distances used by the renderer for each leg, including whether
+                      each value was provided or calculated.
                     items:
                       type: object
                       properties:
                         leg_index:
                           type: integer
+                          description: Zero-based route leg index.
                           example: 0
                         from:
                           type: string
+                          description: Start waypoint name.
                           example: "Marina Kallitheas"
                         to:
                           type: string
+                          description: End waypoint name.
                           example: "Sounion"
                         distance_nm:
                           type: number
-                          example: 25.0
+                          description: Final distance used for this leg in nautical miles.
+                          example: 28.0
                         source:
                           type: string
+                          description: Source of the distance value.
                           enum:
                             - calculated
                             - provided_by_leg
                             - provided_list
                           example: "provided_by_leg"
-      
+
                   total_distance_nm:
                     type: number
-                    description: Total route distance in nautical miles, using provided leg distances where available and calculated geodesic distances otherwise.
+                    description: >
+                      Total route distance in nautical miles, using provided leg distances where available
+                      and calculated geodesic distances otherwise.
                     example: 384.7
