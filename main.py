@@ -391,47 +391,47 @@ def render_route_map(req: RouteRequest):
             preferred_curvature=req.route_curvature,
         )
 
-    curve_pixels = [latlon_to_image_px(lat, lon, meta) for lon, lat in curve_lonlat]
-
-    segments.append({
-        "a_wp": a_wp,
-        "b_wp": b_wp,
-        "curve_lonlat": curve_lonlat,
-        "curve_pixels": curve_pixels,
-        "curvature": chosen_curvature,
-    })
+        curve_pixels = [latlon_to_image_px(lat, lon, meta) for lon, lat in curve_lonlat]
+    
+        segments.append({
+            "a_wp": a_wp,
+            "b_wp": b_wp,
+            "curve_lonlat": curve_lonlat,
+            "curve_pixels": curve_pixels,
+            "curvature": chosen_curvature,
+        })
 
     ROUTE_COLOR = "#1f77b4"
 
     # 1) линии маршрута + стрелки
     if req.show_route_lines:
-    for seg in segments:
-        xs = [pt[0] for pt in seg["curve_pixels"]]
-        ys = [pt[1] for pt in seg["curve_pixels"]]
-
-        ax.plot(xs, ys, linewidth=2.4, color=ROUTE_COLOR, zorder=5)
-
-        if req.show_direction_arrows and len(seg["curve_pixels"]) >= 6:
-            arrow_idx = int(len(seg["curve_pixels"]) * 0.68)
-            arrow_idx = max(2, min(len(seg["curve_pixels"]) - 3, arrow_idx))
-
-            x0, y0 = seg["curve_pixels"][arrow_idx - 1]
-            x1, y1 = seg["curve_pixels"][arrow_idx + 1]
-
-            ax.annotate(
-                "",
-                xy=(x1, y1),
-                xytext=(x0, y0),
-                arrowprops=dict(
-                    arrowstyle="->",
-                    lw=2.4,
-                    color=ROUTE_COLOR,
-                    mutation_scale=14,
-                    shrinkA=0,
-                    shrinkB=0,
-                ),
-                zorder=6,
-            )
+        for seg in segments:
+            xs = [pt[0] for pt in seg["curve_pixels"]]
+            ys = [pt[1] for pt in seg["curve_pixels"]]
+    
+            ax.plot(xs, ys, linewidth=2.4, color=ROUTE_COLOR, zorder=5)
+    
+            if req.show_direction_arrows and len(seg["curve_pixels"]) >= 6:
+                arrow_idx = int(len(seg["curve_pixels"]) * 0.68)
+                arrow_idx = max(2, min(len(seg["curve_pixels"]) - 3, arrow_idx))
+    
+                x0, y0 = seg["curve_pixels"][arrow_idx - 1]
+                x1, y1 = seg["curve_pixels"][arrow_idx + 1]
+    
+                ax.annotate(
+                    "",
+                    xy=(x1, y1),
+                    xytext=(x0, y0),
+                    arrowprops=dict(
+                        arrowstyle="->",
+                        lw=2.4,
+                        color=ROUTE_COLOR,
+                        mutation_scale=14,
+                        shrinkA=0,
+                        shrinkB=0,
+                    ),
+                    zorder=6,
+                )
 
     # 2) иконки точек + подписи точек
     for i, (p, (x, y)) in enumerate(zip(req.waypoints, point_pixels)):
@@ -440,63 +440,63 @@ def render_route_map(req: RouteRequest):
         else:
             symbol = "M"
 
-    ax.text(
-        x,
-        y,
-        symbol,
-        fontsize=14,
-        ha="center",
-        va="center",
-        zorder=7,
-        bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="black", alpha=0.95),
-    )
-
-    if req.show_labels:
-        lx, ly, ha = point_label_position(i, point_pixels)
-
         ax.text(
-            lx,
-            ly,
-            p.name,
-            fontsize=8,
-            ha=ha,
+            x,
+            y,
+            symbol,
+            fontsize=14,
+            ha="center",
             va="center",
             zorder=7,
-            bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="none", alpha=0.88),
+            bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="black", alpha=0.95),
         )
+    
+        if req.show_labels:
+            lx, ly, ha = point_label_position(i, point_pixels)
+    
+            ax.text(
+                lx,
+                ly,
+                p.name,
+                fontsize=8,
+                ha=ha,
+                va="center",
+                zorder=7,
+                bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="none", alpha=0.88),
+            )
 
     # 3) подписи расстояний со смещением в сторону дуги
     if req.show_nm_distances:
-    for seg in segments:
-        curve_pixels = seg["curve_pixels"]
-        mid_idx = len(curve_pixels) // 2
-        i1 = max(0, mid_idx - 1)
-        i2 = min(len(curve_pixels) - 1, mid_idx + 1)
-
-        mid_x, mid_y = curve_pixels[mid_idx]
-
-        dx = curve_pixels[i2][0] - curve_pixels[i1][0]
-        dy = curve_pixels[i2][1] - curve_pixels[i1][1]
-        seg_len = math.hypot(dx, dy) or 1.0
-
-        nx, ny = -dy / seg_len, dx / seg_len
-        side = 1 if seg["curvature"] >= 0 else -1
-
-        label_x = mid_x + nx * 16 * side
-        label_y = mid_y + ny * 16 * side
-
-        dist = nm_distance(seg["a_wp"], seg["b_wp"])
-
-        ax.text(
-            label_x,
-            label_y,
-            f"{dist:.0f} NM",
-            fontsize=8,
-            ha="center",
-            va="center",
-            bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.90),
-            zorder=8,
-        )
+        for seg in segments:
+            curve_pixels = seg["curve_pixels"]
+            mid_idx = len(curve_pixels) // 2
+            i1 = max(0, mid_idx - 1)
+            i2 = min(len(curve_pixels) - 1, mid_idx + 1)
+    
+            mid_x, mid_y = curve_pixels[mid_idx]
+    
+            dx = curve_pixels[i2][0] - curve_pixels[i1][0]
+            dy = curve_pixels[i2][1] - curve_pixels[i1][1]
+            seg_len = math.hypot(dx, dy) or 1.0
+    
+            nx, ny = -dy / seg_len, dx / seg_len
+            side = 1 if seg["curvature"] >= 0 else -1
+    
+            label_x = mid_x + nx * 16 * side
+            label_y = mid_y + ny * 16 * side
+    
+            dist = nm_distance(seg["a_wp"], seg["b_wp"])
+    
+            ax.text(
+                label_x,
+                label_y,
+                f"{dist:.0f} NM",
+                fontsize=8,
+                ha="center",
+                va="center",
+                bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.90),
+                zorder=8,
+            )
 
     ax.set_title(f"{req.title}", fontsize=14)
     ax.set_xlim(0, width)
