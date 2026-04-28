@@ -19,7 +19,7 @@ os.makedirs("static/maps", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 TILE_SIZE = 256
-OSM_TILE_URL = "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"
+OSM_TILE_URL = "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
 USER_AGENT = "yacht-route-renderer/0.1"
 
 session = requests.Session()
