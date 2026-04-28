@@ -640,7 +640,7 @@ def render_route_map(req: RouteRequest):
                         arrowstyle="->",
                         lw=2.4,
                         color=ROUTE_COLOR,
-                        mutation_scale=14,
+                        mutation_scale=22,
                         shrinkA=0,
                         shrinkB=0,
                     ),
@@ -657,8 +657,8 @@ def render_route_map(req: RouteRequest):
     
                 side = 1 if seg["curvature"] >= 0 else -1
     
-                label_x = ((x0 + x1) / 2) + nx * 16 * side
-                label_y = ((y0 + y1) / 2) + ny * 16 * side
+                label_x = ((x0 + x1) / 2) + nx * 28 * side
+                label_y = ((y0 + y1) / 2) + ny * 28 * side
     
                 seg["arrow_label_pos"] = (label_x, label_y)
 
