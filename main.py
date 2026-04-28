@@ -154,6 +154,11 @@ class Waypoint(BaseModel):
     type: str = "waypoint"
 
 
+class LegDistanceOverride(BaseModel):
+    leg_index: int
+    distance_nm: float
+    
+
 class RouteRequest(BaseModel):
     title: str
     waypoints: List[Waypoint]
@@ -164,7 +169,8 @@ class RouteRequest(BaseModel):
 
     leg_distances_nm: Optional[List[Optional[float]]] = None
     leg_distances_nm_by_leg: Optional[Dict[str, float]] = None
-
+    leg_distances_nm_partial: Optional[List[LegDistanceOverride]] = None
+    
     show_labels: Optional[bool] = None
     show_nm_distances: Optional[bool] = None
     show_route_lines: bool = True
@@ -251,10 +257,20 @@ def nm_distance(a: Waypoint, b: Waypoint) -> float:
 def leg_distance_nm(a: Waypoint, b: Waypoint, leg_index: int, req: RouteRequest) -> float:
     """
     Distance priority:
-    1. leg_distances_nm_by_leg["0"], ["1"], ... for known partial distances.
-    2. leg_distances_nm[leg_index] if provided.
-    3. Calculated geodesic distance from coordinates.
+    1. leg_distances_nm_partial: [{"leg_index": 0, "distance_nm": 28}]
+    2. leg_distances_nm_by_leg: {"0": 28}
+    3. leg_distances_nm[leg_index]
+    4. calculated geodesic distance
     """
+
+    if req.leg_distances_nm_partial is not None:
+        for item in req.leg_distances_nm_partial:
+            if item.leg_index == leg_index:
+                try:
+                    return float(item.distance_nm)
+                except (TypeError, ValueError):
+                    pass
+
     if req.leg_distances_nm_by_leg is not None:
         key = str(leg_index)
         if key in req.leg_distances_nm_by_leg:
@@ -287,11 +303,17 @@ def leg_distances_output_for_segments(segments, req: RouteRequest):
         )
 
         source = "calculated"
-
-        if req.leg_distances_nm_by_leg is not None:
+        
+        if req.leg_distances_nm_partial is not None:
+            for item in req.leg_distances_nm_partial:
+                if item.leg_index == seg["leg_index"]:
+                    source = "provided_partial"
+                    break
+        
+        if source == "calculated" and req.leg_distances_nm_by_leg is not None:
             if str(seg["leg_index"]) in req.leg_distances_nm_by_leg:
                 source = "provided_by_leg"
-
+        
         if source == "calculated" and req.leg_distances_nm is not None:
             if 0 <= seg["leg_index"] < len(req.leg_distances_nm):
                 if req.leg_distances_nm[seg["leg_index"]] is not None:
@@ -903,6 +925,9 @@ def render_route_map(req: RouteRequest):
         "input_waypoints": len(req.waypoints),
         "input_leg_distances": req.leg_distances_nm,
         "input_leg_distances_by_leg": req.leg_distances_nm_by_leg,
+        "input_leg_distances_partial": [
+            item.model_dump() for item in req.leg_distances_nm_partial
+        ] if req.leg_distances_nm_partial else None,
         "leg_distances": leg_distances_output,
         "total_distance_nm": total_distance_nm,
     }
