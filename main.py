@@ -172,24 +172,40 @@ def apply_map_detail(req: RouteRequest):
             "show_nm_distances": True,
             "show_seamarks": False,
             "route_curvature": 0.12,
+            "min_margin_deg": 0.12,
+            "margin_factor": 0.18,
+            "max_zoom": 11,
+            "max_tiles": 24,
         },
         "route": {
             "show_labels": True,
             "show_nm_distances": True,
             "show_seamarks": False,
             "route_curvature": 0.14,
+            "min_margin_deg": 0.12,
+            "margin_factor": 0.20,
+            "max_zoom": 12,
+            "max_tiles": 24,
         },
         "marine": {
             "show_labels": True,
             "show_nm_distances": True,
             "show_seamarks": True,
             "route_curvature": 0.14,
+            "min_margin_deg": 0.12,
+            "margin_factor": 0.20,
+            "max_zoom": 12,
+            "max_tiles": 24,
         },
         "local": {
             "show_labels": True,
             "show_nm_distances": False,
             "show_seamarks": True,
-            "route_curvature": 0.08,
+            "route_curvature": 0.06,
+            "min_margin_deg": 0.015,
+            "margin_factor": 0.80,
+            "max_zoom": 15,
+            "max_tiles": 64,
         },
     }
 
@@ -226,8 +242,8 @@ def latlon_to_tile_xy(lat: float, lon: float, zoom: int):
     return x, y
 
 
-def estimate_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=20):
-    for z in range(12, 1, -1):
+def estimate_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=24, max_zoom=12):
+    for z in range(max_zoom, 1, -1):
         x_left, y_top = latlon_to_tile_xy(max_lat, min_lon, z)
         x_right, y_bottom = latlon_to_tile_xy(min_lat, max_lon, z)
 
@@ -237,6 +253,7 @@ def estimate_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=20):
         y_end = math.floor(y_bottom)
 
         tiles_count = (x_end - x_start + 1) * (y_end - y_start + 1)
+
         if tiles_count <= max_tiles:
             return z
     return 3
@@ -269,8 +286,23 @@ def fetch_overlay_tile(tile_url: str, z: int, x: int, y: int) -> Image.Image:
     # overlay должен быть прозрачным, если тайл не загрузился
     return fetch_tile_from_url(tile_url, z, x, y)
 
-def build_osm_background(min_lon, min_lat, max_lon, max_lat, show_seamarks=False):
-    zoom = estimate_zoom(min_lon, min_lat, max_lon, max_lat)
+def build_osm_background(
+    min_lon,
+    min_lat,
+    max_lon,
+    max_lat,
+    show_seamarks=False,
+    max_tiles=24,
+    max_zoom=12,
+):
+    zoom = estimate_zoom(
+        min_lon,
+        min_lat,
+        max_lon,
+        max_lat,
+        max_tiles=max_tiles,
+        max_zoom=max_zoom,
+    )
 
     x_left_f, y_top_f = latlon_to_tile_xy(max_lat, min_lon, zoom)
     x_right_f, y_bottom_f = latlon_to_tile_xy(min_lat, max_lon, zoom)
@@ -500,8 +532,14 @@ def render_route_map(req: RouteRequest):
     lats = [p.lat for p in req.waypoints]
     lons = [p.lon for p in req.waypoints]
 
-    margin_lat = max(0.2, (max(lats) - min(lats)) * 0.20)
-    margin_lon = max(0.2, (max(lons) - min(lons)) * 0.20)
+    lat_span = max(lats) - min(lats)
+    lon_span = max(lons) - min(lons)
+    
+    margin_factor = cfg["margin_factor"]
+    min_margin_deg = cfg["min_margin_deg"]
+    
+    margin_lat = max(min_margin_deg, lat_span * margin_factor)
+    margin_lon = max(min_margin_deg, lon_span * margin_factor)
 
     min_lon = min(lons) - margin_lon
     max_lon = max(lons) + margin_lon
@@ -514,6 +552,8 @@ def render_route_map(req: RouteRequest):
         max_lon,
         max_lat,
         show_seamarks=cfg["show_seamarks"],
+        max_tiles=cfg["max_tiles"],
+        max_zoom=cfg["max_zoom"],
     )
     width, height = bg_img.size
     fig_w = 12
@@ -609,7 +649,7 @@ def render_route_map(req: RouteRequest):
                 lx,
                 ly,
                 p.name,
-                fontsize=8,
+                fontsize=12,
                 ha=ha,
                 va="center",
                 zorder=9,
@@ -632,7 +672,7 @@ def render_route_map(req: RouteRequest):
                 label_x,
                 label_y,
                 f"{dist:.0f} NM",
-                fontsize=8,
+                fontsize=12,
                 ha="center",
                 va="center",
                 bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.90),
