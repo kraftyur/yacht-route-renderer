@@ -28,10 +28,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 TILE_SIZE = 256
 CARTO_TILE_SUBDOMAINS = ["a", "b", "c", "d"]
-BASE_TILE_URLS = [
-    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-    "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-]
+VOYAGER_TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 OPENSEAMAP_SEAMARK_TILE_URL = "https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png"
 USER_AGENT = "yacht-route-renderer/0.1"
 
@@ -273,6 +271,8 @@ def estimate_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=24, max_zoom=12)
             return z
     return 3
 
+import time
+
 def fetch_tile_from_url(tile_url: str, z: int, x: int, y: int, retries=2) -> Image.Image:
     max_index = 2 ** z
     x = x % max_index
@@ -307,32 +307,34 @@ def fetch_tile_from_url(tile_url: str, z: int, x: int, y: int, retries=2) -> Ima
     return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 0))
 
 
-def fetch_base_tile(z: int, x: int, y: int) -> tuple[Image.Image, bool, str]:
-    for tile_url in BASE_TILE_URLS:
-        tile = fetch_tile_from_url(tile_url, z, x, y)
+def fetch_base_tile(z: int, x: int, y: int, tile_url: str) -> tuple[Image.Image, bool]:
+    tile = fetch_tile_from_url(tile_url, z, x, y)
 
-        if tile.getbbox() is not None:
-            provider = "carto_voyager" if "cartocdn" in tile_url else "osm"
-            return tile, True, provider
+    if tile.getbbox() is None:
+        fallback = Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (235, 235, 235, 255))
+        return fallback, False
 
-    fallback = Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (235, 235, 235, 255))
-    return fallback, False, "fallback_gray"
+    return tile, True
     
 
 def fetch_overlay_tile(tile_url: str, z: int, x: int, y: int) -> Image.Image:
     # overlay должен быть прозрачным, если тайл не загрузился
     return fetch_tile_from_url(tile_url, z, x, y)
 
-def build_osm_background(
+
+def build_background_for_provider(
     min_lon,
     min_lat,
     max_lon,
     max_lat,
+    tile_url: str,
+    provider_name: str,
     show_seamarks=False,
     max_tiles=24,
     max_zoom=12,
+    forced_zoom=None,
 ):
-    zoom = estimate_zoom(
+    zoom = forced_zoom if forced_zoom is not None else estimate_zoom(
         min_lon,
         min_lat,
         max_lon,
@@ -357,27 +359,19 @@ def build_osm_background(
     failed_tiles = 0
     loaded_tiles = 0
 
-    provider_stats = {
-        "carto_voyager": 0,
-        "osm": 0,
-        "fallback_gray": 0,
-    }
-    
     for ty in range(y_start, y_end + 1):
         for tx in range(x_start, x_end + 1):
-            base_tile, ok, provider = fetch_base_tile(zoom, tx, ty)
+            base_tile, ok = fetch_base_tile(zoom, tx, ty, tile_url)
 
-            provider_stats[provider] = provider_stats.get(provider, 0) + 1
-    
             if ok:
                 loaded_tiles += 1
             else:
                 failed_tiles += 1
-    
+
             if show_seamarks:
                 seamark_tile = fetch_overlay_tile(OPENSEAMAP_SEAMARK_TILE_URL, zoom, tx, ty)
                 base_tile.alpha_composite(seamark_tile)
-    
+
             px = (tx - x_start) * TILE_SIZE
             py = (ty - y_start) * TILE_SIZE
             stitched.paste(base_tile, (px, py))
@@ -402,10 +396,57 @@ def build_osm_background(
         "height": cropped.size[1],
         "failed_tiles": failed_tiles,
         "loaded_tiles": loaded_tiles,
-        "provider_stats": provider_stats,
+        "base_provider": provider_name,
     }
 
     return cropped, meta
+
+
+def build_osm_background(
+    min_lon,
+    min_lat,
+    max_lon,
+    max_lat,
+    show_seamarks=False,
+    max_tiles=24,
+    max_zoom=12,
+):
+    # Сначала пробуем Voyager
+    bg_img, meta = build_background_for_provider(
+        min_lon,
+        min_lat,
+        max_lon,
+        max_lat,
+        tile_url=VOYAGER_TILE_URL,
+        provider_name="voyager",
+        show_seamarks=show_seamarks,
+        max_tiles=max_tiles,
+        max_zoom=max_zoom,
+    )
+
+    # Если хотя бы один тайл не загрузился — полностью пересобираем в OSM
+    if meta["failed_tiles"] > 0:
+        print(
+            f"[map] voyager incomplete "
+            f"(loaded={meta['loaded_tiles']}, failed={meta['failed_tiles']}). "
+            f"Rebuilding full map with OSM."
+        )
+
+        bg_img, meta = build_background_for_provider(
+            min_lon,
+            min_lat,
+            max_lon,
+            max_lat,
+            tile_url=OSM_TILE_URL,
+            provider_name="osm",
+            show_seamarks=show_seamarks,
+            max_tiles=max_tiles,
+            max_zoom=max_zoom,
+            forced_zoom=meta["zoom"],   # тот же zoom
+        )
+
+    return bg_img, meta
+    
 
 def latlon_to_image_px(lat: float, lon: float, meta: dict):
     zoom = meta["zoom"]
@@ -755,5 +796,5 @@ def render_route_map(req: RouteRequest):
         "show_nm_distances": cfg["show_nm_distances"],
         "loaded_tiles": meta["loaded_tiles"],
         "failed_tiles": meta["failed_tiles"],
-        "provider_stats": meta["provider_stats"],
+        "base_provider": meta["base_provider"],
     }
