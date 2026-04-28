@@ -169,27 +169,98 @@ paths:
                     type: string
                     description: Public URL of the generated PNG.
                     example: "https://yacht-route-renderer.onrender.com/static/maps/route-12345678.png"
+      
                   format:
                     type: string
                     example: "png"
+      
                   zoom:
                     type: integer
                     example: 12
+      
                   map_detail:
                     type: string
                     example: "route"
+      
                   show_seamarks:
                     type: boolean
                     example: false
+      
                   show_nm_distances:
                     type: boolean
                     example: true
+      
                   loaded_tiles:
                     type: integer
                     example: 20
+      
                   failed_tiles:
                     type: integer
                     example: 0
+      
                   base_provider:
                     type: string
+                    description: Final base map provider used after fallback logic.
                     example: "voyager"
+      
+                  closed_route:
+                    type: boolean
+                    description: Whether the renderer treated the route as circular and suppressed the duplicate final marker.
+                    example: true
+      
+                  input_waypoints:
+                    type: integer
+                    description: Number of waypoints received in the request.
+                    example: 10
+      
+                  displayed_waypoints:
+                    type: integer
+                    description: Number of unique waypoint markers displayed on the map.
+                    example: 9
+      
+                  input_leg_distances:
+                    type: array
+                    description: Complete list of input leg distances, if provided.
+                    items:
+                      type: number
+                    example: [25, 54, 61, 72]
+      
+                  input_leg_distances_by_leg:
+                    type: object
+                    description: Partial input leg distances keyed by zero-based leg index, if provided.
+                    additionalProperties:
+                      type: number
+                    example:
+                      "0": 25
+                      "2": 61
+      
+                  leg_distances:
+                    type: array
+                    description: Final nautical-mile distances used by the renderer for each leg, including whether each value was provided or calculated.
+                    items:
+                      type: object
+                      properties:
+                        leg_index:
+                          type: integer
+                          example: 0
+                        from:
+                          type: string
+                          example: "Marina Kallitheas"
+                        to:
+                          type: string
+                          example: "Sounion"
+                        distance_nm:
+                          type: number
+                          example: 25.0
+                        source:
+                          type: string
+                          enum:
+                            - calculated
+                            - provided_by_leg
+                            - provided_list
+                          example: "provided_by_leg"
+      
+                  total_distance_nm:
+                    type: number
+                    description: Total route distance in nautical miles, using provided leg distances where available and calculated geodesic distances otherwise.
+                    example: 384.7
