@@ -76,11 +76,8 @@ def estimate_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=20):
 
 def fetch_tile(z: int, x: int, y: int) -> Image.Image:
     max_index = 2 ** z
-
-    # x по долготе можно зациклить
     x = x % max_index
 
-    # y по широте не должен выходить за диапазон
     if y < 0 or y >= max_index:
         return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 255))
 
@@ -125,7 +122,34 @@ def build_osm_background(min_lon, min_lat, max_lon, max_lat):
     bottom = max(bottom, top + 10)
 
     cropped = stitched.crop((left, top, right, bottom))
-    return cropped, zoom
+
+    meta = {
+        "zoom": zoom,
+        "x_start": x_start,
+        "y_start": y_start,
+        "crop_left": left,
+        "crop_top": top,
+        "width": cropped.size[0],
+        "height": cropped.size[1],
+    }
+
+    return cropped, meta
+
+
+def latlon_to_image_px(lat: float, lon: float, meta: dict):
+    zoom = meta["zoom"]
+    x_tile_f, y_tile_f = latlon_to_tile_xy(lat, lon, zoom)
+
+    x_px_global = x_tile_f * TILE_SIZE
+    y_px_global = y_tile_f * TILE_SIZE
+
+    crop_x0 = meta["x_start"] * TILE_SIZE + meta["crop_left"]
+    crop_y0 = meta["y_start"] * TILE_SIZE + meta["crop_top"]
+
+    x_px = x_px_global - crop_x0
+    y_px = y_px_global - crop_y0
+
+    return x_px, y_px
 
 
 @app.get("/")
@@ -153,22 +177,25 @@ def render_route_map(req: RouteRequest):
     min_lat = min(lats) - margin_lat
     max_lat = max(lats) + margin_lat
 
-    bg_img, zoom = build_osm_background(min_lon, min_lat, max_lon, max_lat)
+    bg_img, meta = build_osm_background(min_lon, min_lat, max_lon, max_lat)
 
-    fig, ax = plt.subplots(figsize=(12, 8), dpi=120)
+    width, height = bg_img.size
+    fig_w = 12
+    fig_h = fig_w * (height / width)
 
-    # Реальная OSM-подложка
-    ax.imshow(
-        bg_img,
-        extent=[min_lon, max_lon, min_lat, max_lat],
-        aspect="auto",
-        zorder=0
-    )
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=120)
+
+    # рисуем картинку в пиксельной системе координат
+    ax.imshow(bg_img, zorder=0)
+
+    route_pixels = [latlon_to_image_px(p.lat, p.lon, meta) for p in req.waypoints]
+    xs = [pt[0] for pt in route_pixels]
+    ys = [pt[1] for pt in route_pixels]
 
     if req.show_route_lines:
-        ax.plot(lons, lats, linewidth=2.2, marker="o", zorder=5)
+        ax.plot(xs, ys, linewidth=2.2, marker="o", zorder=5)
 
-    for p in req.waypoints:
+    for p, (x, y) in zip(req.waypoints, route_pixels):
         if p.type == "marina":
             symbol = "M"
         elif p.type == "anchorage":
@@ -179,8 +206,8 @@ def render_route_map(req: RouteRequest):
             symbol = "•"
 
         ax.text(
-            p.lon,
-            p.lat,
+            x,
+            y,
             symbol,
             fontsize=12,
             ha="center",
@@ -191,23 +218,28 @@ def render_route_map(req: RouteRequest):
 
         if req.show_labels:
             ax.text(
-                p.lon + 0.03,
-                p.lat + 0.02,
+                x + 14,
+                y - 10,
                 p.name,
                 fontsize=8,
                 zorder=6,
-                bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="none", alpha=0.80),
+                bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="none", alpha=0.85),
             )
 
     if req.show_nm_distances:
-        for a, b in zip(req.waypoints[:-1], req.waypoints[1:]):
-            mid_lat = (a.lat + b.lat) / 2
-            mid_lon = (a.lon + b.lon) / 2
+        for a, b, (x1, y1), (x2, y2) in zip(
+            req.waypoints[:-1],
+            req.waypoints[1:],
+            route_pixels[:-1],
+            route_pixels[1:]
+        ):
+            mid_x = (x1 + x2) / 2
+            mid_y = (y1 + y2) / 2
             dist = nm_distance(a, b)
 
             ax.text(
-                mid_lon,
-                mid_lat,
+                mid_x,
+                mid_y,
                 f"{dist:.0f} NM",
                 fontsize=8,
                 ha="center",
@@ -215,22 +247,19 @@ def render_route_map(req: RouteRequest):
                 zorder=7,
             )
 
-    ax.set_xlim(min_lon, max_lon)
-    ax.set_ylim(min_lat, max_lat)
-    ax.set_xlabel("Longitude")
-    ax.set_ylabel("Latitude")
-    ax.set_title(f"{req.title} (zoom {zoom})", fontsize=14)
-    ax.grid(False)
+    ax.set_title(f"{req.title}", fontsize=14)
+    ax.set_xlim(0, width)
+    ax.set_ylim(height, 0)  # инвертируем Y, чтобы совпадало с изображением
+    ax.axis("off")
 
     plt.tight_layout()
-    plt.savefig(filepath, bbox_inches="tight")
+    plt.savefig(filepath, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
     base_url = "https://yacht-route-renderer.onrender.com"
 
     return {
         "image_url": f"{base_url}/static/maps/{filename}",
-        "bounds": [min_lon, min_lat, max_lon, max_lat],
         "format": "png",
-        "zoom": zoom,
+        "zoom": meta["zoom"],
     }
