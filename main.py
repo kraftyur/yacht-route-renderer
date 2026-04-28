@@ -195,10 +195,11 @@ def render_route_map(req: RouteRequest):
     if req.show_route_lines:
         ax.plot(xs, ys, linewidth=2.2, marker="o", zorder=5)
 
-    if p.type == "anchorage":
-        symbol = "⚓"
-    else:
-        symbol = "⛵"
+    for p, (x, y) in zip(req.waypoints, route_pixels):
+        if p.type == "anchorage":
+            symbol = "⚓"
+        else:
+            symbol = "⛵"
 
         ax.text(
             x,
