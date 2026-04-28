@@ -1,3 +1,6 @@
+import matplotlib.image as mpimg
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+from matplotlib.patches import Circle
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -34,6 +37,47 @@ LAND_FILE = "data/land_polygons.geojson"
 LAND_GEOM = None
 LAND_PREP = None
 
+ANCHOR_ICON_PATH = "static/icons/anchor-64.png"
+BOAT_ICON_PATH = "static/icons/boat-64.png"
+
+ANCHOR_ICON = None
+BOAT_ICON = None
+
+def load_icons():
+    global ANCHOR_ICON, BOAT_ICON
+
+    if os.path.exists(ANCHOR_ICON_PATH):
+        ANCHOR_ICON = mpimg.imread(ANCHOR_ICON_PATH)
+
+    if os.path.exists(BOAT_ICON_PATH):
+        BOAT_ICON = mpimg.imread(BOAT_ICON_PATH)
+
+load_icons()
+
+def draw_point_icon(ax, x, y, icon_img, circle_radius=13, zoom=0.22):
+    # белый круг
+    circle = Circle(
+        (x, y),
+        radius=circle_radius,
+        facecolor="white",
+        edgecolor="black",
+        linewidth=1.0,
+        alpha=0.95,
+        zorder=7,
+    )
+    ax.add_patch(circle)
+
+    # сама иконка
+    if icon_img is not None:
+        imagebox = OffsetImage(icon_img, zoom=zoom)
+        ab = AnnotationBbox(
+            imagebox,
+            (x, y),
+            frameon=False,
+            box_alignment=(0.5, 0.5),
+            zorder=8,
+        )
+        ax.add_artist(ab)
 
 def load_land_mask():
     global LAND_GEOM, LAND_PREP
@@ -428,6 +472,8 @@ def render_route_map(req: RouteRequest):
     
             ax.plot(xs, ys, linewidth=2.4, color=ROUTE_COLOR, zorder=5)
     
+            seg["arrow_label_pos"] = None
+    
             if req.show_direction_arrows and len(seg["curve_pixels"]) >= 6:
                 arrow_idx = int(len(seg["curve_pixels"]) * 0.68)
                 arrow_idx = max(2, min(len(seg["curve_pixels"]) - 3, arrow_idx))
@@ -449,24 +495,28 @@ def render_route_map(req: RouteRequest):
                     ),
                     zorder=6,
                 )
+    
+                # считаем позицию лейбла рядом со стрелкой
+                dx = x1 - x0
+                dy = y1 - y0
+                seg_len = math.hypot(dx, dy) or 1.0
+    
+                nx = -dy / seg_len
+                ny = dx / seg_len
+    
+                side = 1 if seg["curvature"] >= 0 else -1
+    
+                label_x = ((x0 + x1) / 2) + nx * 16 * side
+                label_y = ((y0 + y1) / 2) + ny * 16 * side
+    
+                seg["arrow_label_pos"] = (label_x, label_y)
 
     # 2) иконки точек + подписи точек
     for i, (p, (x, y)) in enumerate(zip(req.waypoints, point_pixels)):
         if p.type == "anchorage":
-            symbol = "A"
+            draw_point_icon(ax, x, y, ANCHOR_ICON, circle_radius=13, zoom=0.22)
         else:
-            symbol = "M"
-
-        ax.text(
-            x,
-            y,
-            symbol,
-            fontsize=14,
-            ha="center",
-            va="center",
-            zorder=7,
-            bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="black", alpha=0.95),
-        )
+            draw_point_icon(ax, x, y, BOAT_ICON, circle_radius=13, zoom=0.22)
     
         if req.show_labels:
             lx, ly, ha = point_label_position(i, point_pixels)
@@ -478,31 +528,21 @@ def render_route_map(req: RouteRequest):
                 fontsize=8,
                 ha=ha,
                 va="center",
-                zorder=7,
+                zorder=9,
                 bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="none", alpha=0.88),
             )
 
     # 3) подписи расстояний со смещением в сторону дуги
     if req.show_nm_distances:
         for seg in segments:
-            curve_pixels = seg["curve_pixels"]
-            mid_idx = len(curve_pixels) // 2
-            i1 = max(0, mid_idx - 1)
-            i2 = min(len(curve_pixels) - 1, mid_idx + 1)
-    
-            mid_x, mid_y = curve_pixels[mid_idx]
-    
-            dx = curve_pixels[i2][0] - curve_pixels[i1][0]
-            dy = curve_pixels[i2][1] - curve_pixels[i1][1]
-            seg_len = math.hypot(dx, dy) or 1.0
-    
-            nx, ny = -dy / seg_len, dx / seg_len
-            side = 1 if seg["curvature"] >= 0 else -1
-    
-            label_x = mid_x + nx * 16 * side
-            label_y = mid_y + ny * 16 * side
-    
             dist = nm_distance(seg["a_wp"], seg["b_wp"])
+    
+            if seg.get("arrow_label_pos") is not None:
+                label_x, label_y = seg["arrow_label_pos"]
+            else:
+                curve_pixels = seg["curve_pixels"]
+                mid_idx = len(curve_pixels) // 2
+                label_x, label_y = curve_pixels[mid_idx]
     
             ax.text(
                 label_x,
