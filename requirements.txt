@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pydantic
+matplotlib
+geopy
+shapely
+cartopy
