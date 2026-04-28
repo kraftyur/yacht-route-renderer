@@ -27,6 +27,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 TILE_SIZE = 256
 OSM_TILE_URL = "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+OPENSEAMAP_SEAMARK_TILE_URL = "https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png"
 USER_AGENT = "yacht-route-renderer/0.1"
 
 session = requests.Session()
@@ -146,12 +147,10 @@ class RouteRequest(BaseModel):
     show_nm_distances: bool = True
     show_route_lines: bool = True
     show_coastline: bool = True
-
+    show_seamarks: bool = False
     show_direction_arrows: bool = True
-
     # auto | fixed | straight
     curve_mode: str = "auto"
-
     # используется как базовый/предпочтительный изгиб
     route_curvature: float = 0.14
 
@@ -185,22 +184,35 @@ def estimate_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=20):
             return z
     return 3
 
-def fetch_tile(z: int, x: int, y: int) -> Image.Image:
+def fetch_tile_from_url(tile_url: str, z: int, x: int, y: int) -> Image.Image:
     max_index = 2 ** z
     x = x % max_index
 
     if y < 0 or y >= max_index:
-        return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 255))
+        return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 0))
 
-    url = OSM_TILE_URL.format(z=z, x=x, y=y)
+    url = tile_url.format(z=z, x=x, y=y)
+
     try:
         resp = session.get(url, timeout=20)
         resp.raise_for_status()
         return Image.open(BytesIO(resp.content)).convert("RGBA")
     except Exception:
-        return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 255))
+        return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 0))
 
-def build_osm_background(min_lon, min_lat, max_lon, max_lat):
+def fetch_base_tile(z: int, x: int, y: int) -> Image.Image:
+    tile = fetch_tile_from_url(OSM_TILE_URL, z, x, y)
+
+    # если базовый тайл не загрузился, пусть будет светло-серый непрозрачный
+    if tile.getbbox() is None:
+        return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 255))
+    return tile
+
+def fetch_overlay_tile(tile_url: str, z: int, x: int, y: int) -> Image.Image:
+    # overlay должен быть прозрачным, если тайл не загрузился
+    return fetch_tile_from_url(tile_url, z, x, y)
+
+def build_osm_background(min_lon, min_lat, max_lon, max_lat, show_seamarks=False):
     zoom = estimate_zoom(min_lon, min_lat, max_lon, max_lat)
 
     x_left_f, y_top_f = latlon_to_tile_xy(max_lat, min_lon, zoom)
@@ -218,10 +230,15 @@ def build_osm_background(min_lon, min_lat, max_lon, max_lat):
 
     for ty in range(y_start, y_end + 1):
         for tx in range(x_start, x_end + 1):
-            tile = fetch_tile(zoom, tx, ty)
+            base_tile = fetch_base_tile(zoom, tx, ty)
+    
+            if show_seamarks:
+                seamark_tile = fetch_overlay_tile(OPENSEAMAP_SEAMARK_TILE_URL, zoom, tx, ty)
+                base_tile.alpha_composite(seamark_tile)
+    
             px = (tx - x_start) * TILE_SIZE
             py = (ty - y_start) * TILE_SIZE
-            stitched.paste(tile, (px, py))
+            stitched.paste(base_tile, (px, py))
 
     left = int((x_left_f - x_start) * TILE_SIZE)
     top = int((y_top_f - y_start) * TILE_SIZE)
@@ -432,8 +449,13 @@ def render_route_map(req: RouteRequest):
     min_lat = min(lats) - margin_lat
     max_lat = max(lats) + margin_lat
 
-    bg_img, meta = build_osm_background(min_lon, min_lat, max_lon, max_lat)
-
+    bg_img, meta = build_osm_background(
+        min_lon,
+        min_lat,
+        max_lon,
+        max_lat,
+        show_seamarks=req.show_seamarks,
+    )
     width, height = bg_img.size
     fig_w = 12
     fig_h = fig_w * (height / width)
