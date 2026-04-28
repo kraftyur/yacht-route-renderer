@@ -514,9 +514,9 @@ def render_route_map(req: RouteRequest):
     # 2) иконки точек + подписи точек
     for i, (p, (x, y)) in enumerate(zip(req.waypoints, point_pixels)):
         if p.type == "anchorage":
-            draw_point_icon(ax, x, y, ANCHOR_ICON, circle_radius=13, zoom=0.22)
+            draw_point_icon(ax, x, y, ANCHOR_ICON, circle_radius=10, zoom=0.25)
         else:
-            draw_point_icon(ax, x, y, BOAT_ICON, circle_radius=13, zoom=0.22)
+            draw_point_icon(ax, x, y, BOAT_ICON, circle_radius=10, zoom=0.25)
     
         if req.show_labels:
             lx, ly, ha = point_label_position(i, point_pixels)
