@@ -1,1 +1,179 @@
+openapi: 3.1.0
+info:
+  title: Yacht Route Map Renderer
+  version: 1.0.0
+  description: Render yacht route maps using real map tiles, OpenSeaMap overlay, land polygons, curved route legs, icons, arrows, and nautical-mile labels.
+servers:
+  - url: https://yacht-route-renderer.onrender.com
 
+paths:
+  /render-route-map:
+    post:
+      operationId: renderRouteMap
+      summary: Render a yacht route map from waypoints
+      description: Creates a PNG route map from geographic waypoints. Supports map detail presets, OpenSeaMap seamarks, curved legs, arrows, nautical mile labels, and automatic curve selection around land.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - waypoints
+              properties:
+                title:
+                  type: string
+                  description: Title to display on the rendered map.
+                  example: "Marina Kallitheas — Sounion — Monemvasia — Milos"
+
+                waypoints:
+                  type: array
+                  minItems: 2
+                  description: Ordered route points.
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - lat
+                      - lon
+                      - type
+                    properties:
+                      name:
+                        type: string
+                        description: Display name for the waypoint.
+                        example: "Sounion"
+                      lat:
+                        type: number
+                        description: Latitude in decimal degrees.
+                        example: 37.65
+                      lon:
+                        type: number
+                        description: Longitude in decimal degrees.
+                        example: 24.024
+                      type:
+                        type: string
+                        description: Type of waypoint. Anchorages are rendered with an anchor icon; marinas, harbors, towns and waypoints are rendered with a boat icon.
+                        enum:
+                          - marina
+                          - anchorage
+                          - harbor
+                          - town
+                          - waypoint
+                        example: anchorage
+
+                output_format:
+                  type: string
+                  enum:
+                    - png
+                  default: png
+                  description: Output image format.
+
+                style:
+                  type: string
+                  enum:
+                    - nautical_schematic
+                    - clean
+                    - print
+                  default: nautical_schematic
+                  description: Visual style hint for the renderer.
+
+                map_detail:
+                  type: string
+                  enum:
+                    - presentation
+                    - route
+                    - marine
+                    - local
+                  default: route
+                  description: Preset controlling map detail, seamarks, distances, curvature and zoom behavior.
+
+                show_labels:
+                  type:
+                    - boolean
+                    - "null"
+                  default: null
+                  description: Override map_detail label behavior. If null, the preset decides.
+
+                show_nm_distances:
+                  type:
+                    - boolean
+                    - "null"
+                  default: null
+                  description: Override whether nautical mile distances are shown. If null, the preset decides.
+
+                show_route_lines:
+                  type: boolean
+                  default: true
+                  description: Whether to draw route legs.
+
+                show_coastline:
+                  type: boolean
+                  default: true
+                  description: Kept for compatibility; coastline comes from map tiles.
+
+                show_seamarks:
+                  type:
+                    - boolean
+                    - "null"
+                  default: null
+                  description: Override whether OpenSeaMap seamarks are shown. If null, the preset decides.
+
+                show_direction_arrows:
+                  type: boolean
+                  default: true
+                  description: Whether to draw direction arrows on route legs.
+
+                curve_mode:
+                  type: string
+                  enum:
+                    - auto
+                    - fixed
+                    - straight
+                  default: auto
+                  description: Auto uses land polygons to choose a curve that avoids land. Fixed uses a constant curvature. Straight draws straight route legs.
+
+                route_curvature:
+                  type:
+                    - number
+                    - "null"
+                  default: null
+                  description: Override route curvature. Positive or negative values choose curve side in fixed mode. Null means use the map_detail preset.
+                  example: 0.14
+
+      responses:
+        "200":
+          description: Rendered map response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  image_url:
+                    type: string
+                    description: Public URL of the generated PNG.
+                    example: "https://yacht-route-renderer.onrender.com/static/maps/route-12345678.png"
+                  format:
+                    type: string
+                    example: "png"
+                  zoom:
+                    type: integer
+                    example: 12
+                  map_detail:
+                    type: string
+                    example: "route"
+                  show_seamarks:
+                    type: boolean
+                    example: false
+                  show_nm_distances:
+                    type: boolean
+                    example: true
+                  loaded_tiles:
+                    type: integer
+                    example: 20
+                  failed_tiles:
+                    type: integer
+                    example: 0
+                  base_provider:
+                    type: string
+                    example: "voyager"
