@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List
 from geopy.distance import geodesic
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
@@ -38,6 +38,11 @@ def nm_distance(a: Waypoint, b: Waypoint) -> float:
     return km / 1.852
 
 
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "Yacht Route Map Renderer"}
+
+
 @app.post("/render-route-map")
 def render_route_map(req: RouteRequest):
     if len(req.waypoints) < 2:
@@ -68,12 +73,10 @@ def render_route_map(req: RouteRequest):
     ax.add_feature(cfeature.COASTLINE, linewidth=0.8)
     ax.add_feature(cfeature.BORDERS, linewidth=0.3, alpha=0.5)
 
-    # grid
     gl = ax.gridlines(draw_labels=True, linewidth=0.2, alpha=0.4)
     gl.top_labels = False
     gl.right_labels = False
 
-    # route line
     if req.show_route_lines:
         ax.plot(
             lons,
@@ -84,7 +87,6 @@ def render_route_map(req: RouteRequest):
             zorder=5,
         )
 
-    # points and labels
     for p in req.waypoints:
         if p.type == "marina":
             symbol = "M"
@@ -116,7 +118,6 @@ def render_route_map(req: RouteRequest):
                 zorder=6,
             )
 
-    # distances in nautical miles
     if req.show_nm_distances:
         for a, b in zip(req.waypoints[:-1], req.waypoints[1:]):
             mid_lat = (a.lat + b.lat) / 2
@@ -139,9 +140,10 @@ def render_route_map(req: RouteRequest):
     plt.savefig(filepath, bbox_inches="tight")
     plt.close(fig)
 
-    base_url = "https://YOUR-DOMAIN-HERE"
+    # ВАЖНО: пока оставляем локальный относительный путь.
+    # После деплоя на Render заменим на настоящий домен.
     return {
-        "image_url": f"{base_url}/static/maps/{filename}",
+        "image_url": f"/static/maps/{filename}",
         "bounds": [min_lon, min_lat, max_lon, max_lat],
         "format": "png",
     }
