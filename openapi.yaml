@@ -75,15 +75,45 @@ paths:
                           - waypoint
                         example: anchorage
 
+                leg_distances_nm_partial:
+                  type: array
+                  description: >
+                    Optional partial nautical-mile distances for selected route legs.
+                    Prefer this field for GPT Actions when only some leg distances are known.
+                    Each item specifies a zero-based leg_index and its distance_nm.
+                    Do not invent distances. Omit unknown legs; the renderer will calculate them.
+                    For circular routes with the final waypoint duplicating the first, the final leg
+                    index is the closing leg back to the start.
+                  items:
+                    type: object
+                    required:
+                      - leg_index
+                      - distance_nm
+                    properties:
+                      leg_index:
+                        type: integer
+                        description: Zero-based route leg index. Leg 0 means waypoint 1 to waypoint 2.
+                        example: 0
+                      distance_nm:
+                        type: number
+                        description: Distance for this leg in nautical miles.
+                        example: 28
+                  example:
+                    - leg_index: 0
+                      distance_nm: 28
+                    - leg_index: 2
+                      distance_nm: 31
+                    - leg_index: 4
+                      distance_nm: 22
+
                 leg_distances_nm_by_leg:
                   type: object
                   description: >
                     Optional partial nautical-mile distances keyed by zero-based route leg index.
                     Use this when only some leg distances are known from a reliable source.
+                    Don't use this field for GPT Actions, use leg_distances_nm_partial instead.
                     For example, "0" is waypoint 1 to waypoint 2, "1" is waypoint 2 to waypoint 3.
                     Do not invent distances. Omit unknown legs; the renderer will calculate them.
-                    For circular routes with the final waypoint duplicating the first, the final leg
-                    index is the closing leg back to the start.
                   additionalProperties:
                     type: number
                   example:
@@ -278,6 +308,19 @@ paths:
                       "2": 31
                       "4": 22
 
+                  input_leg_distances_partial:
+                    type: array
+                    description: Partial input leg distances as received by the renderer, if provided.
+                    items:
+                      type: object
+                      properties:
+                        leg_index:
+                          type: integer
+                          example: 0
+                        distance_nm:
+                          type: number
+                          example: 28
+
                   leg_distances:
                     type: array
                     description: >
@@ -307,6 +350,7 @@ paths:
                           description: Source of the distance value.
                           enum:
                             - calculated
+                            - provided_partial
                             - provided_by_leg
                             - provided_list
                           example: "provided_by_leg"
