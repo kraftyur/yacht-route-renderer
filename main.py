@@ -19,6 +19,7 @@ import json
 from shapely.geometry import shape, Point, LineString
 from shapely.ops import unary_union
 from shapely.prepared import prep
+import time
 
 app = FastAPI(title="Yacht Route Map Renderer")
 
@@ -26,10 +27,14 @@ os.makedirs("static/maps", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 TILE_SIZE = 256
-OSM_TILE_URL = "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+CARTO_TILE_SUBDOMAINS = ["a", "b", "c", "d"]
+OSM_TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
 OPENSEAMAP_SEAMARK_TILE_URL = "https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png"
 USER_AGENT = "yacht-route-renderer/0.1"
 
+def pick_subdomain(x: int, y: int):
+    return CARTO_TILE_SUBDOMAINS[(x + y) % len(CARTO_TILE_SUBDOMAINS)]
+    
 session = requests.Session()
 session.headers.update({"User-Agent": USER_AGENT})
 
@@ -258,29 +263,41 @@ def estimate_zoom(min_lon, min_lat, max_lon, max_lat, max_tiles=24, max_zoom=12)
             return z
     return 3
 
-def fetch_tile_from_url(tile_url: str, z: int, x: int, y: int) -> Image.Image:
+def fetch_tile_from_url(tile_url: str, z: int, x: int, y: int, retries=3) -> Image.Image:
     max_index = 2 ** z
     x = x % max_index
 
     if y < 0 or y >= max_index:
         return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 0))
 
-    url = tile_url.format(z=z, x=x, y=y)
+    subdomain = pick_subdomain(x, y)
+    url = tile_url.format(s=subdomain, z=z, x=x, y=y)
 
-    try:
-        resp = session.get(url, timeout=20)
-        resp.raise_for_status()
-        return Image.open(BytesIO(resp.content)).convert("RGBA")
-    except Exception:
-        return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 0))
+    last_error = None
 
-def fetch_base_tile(z: int, x: int, y: int) -> Image.Image:
+    for attempt in range(retries):
+        try:
+            resp = session.get(url, timeout=30)
+            resp.raise_for_status()
+            return Image.open(BytesIO(resp.content)).convert("RGBA")
+        except Exception as e:
+            last_error = e
+            time.sleep(0.4 * (attempt + 1))
+
+    print(f"[tile] failed z={z} x={x} y={y} url={url} err={last_error}")
+    return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 0))
+
+
+def fetch_base_tile(z: int, x: int, y: int) -> tuple[Image.Image, bool]:
     tile = fetch_tile_from_url(OSM_TILE_URL, z, x, y)
 
-    # если базовый тайл не загрузился, пусть будет светло-серый непрозрачный
+    # если tile полностью пустой
     if tile.getbbox() is None:
-        return Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (240, 240, 240, 255))
-    return tile
+        fallback = Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (235, 235, 235, 255))
+        return fallback, False
+
+    return tile, True
+    
 
 def fetch_overlay_tile(tile_url: str, z: int, x: int, y: int) -> Image.Image:
     # overlay должен быть прозрачным, если тайл не загрузился
@@ -317,9 +334,17 @@ def build_osm_background(
 
     stitched = Image.new("RGBA", (tiles_w * TILE_SIZE, tiles_h * TILE_SIZE))
 
+    failed_tiles = 0
+    loaded_tiles = 0
+    
     for ty in range(y_start, y_end + 1):
         for tx in range(x_start, x_end + 1):
-            base_tile = fetch_base_tile(zoom, tx, ty)
+            base_tile, ok = fetch_base_tile(zoom, tx, ty)
+    
+            if ok:
+                loaded_tiles += 1
+            else:
+                failed_tiles += 1
     
             if show_seamarks:
                 seamark_tile = fetch_overlay_tile(OPENSEAMAP_SEAMARK_TILE_URL, zoom, tx, ty)
@@ -347,6 +372,8 @@ def build_osm_background(
         "crop_top": top,
         "width": cropped.size[0],
         "height": cropped.size[1],
+        "failed_tiles": failed_tiles,
+        "loaded_tiles": loaded_tiles,
     }
 
     return cropped, meta
@@ -697,4 +724,6 @@ def render_route_map(req: RouteRequest):
         "map_detail": cfg["map_detail"],
         "show_seamarks": cfg["show_seamarks"],
         "show_nm_distances": cfg["show_nm_distances"],
+        "loaded_tiles": meta["loaded_tiles"],
+        "failed_tiles": meta["failed_tiles"],
     }
