@@ -45,27 +45,44 @@ def load_land_mask():
         print(f"[land-mask] file not found: {LAND_FILE}")
         return
 
-    with open(LAND_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        with open(LAND_FILE, "r", encoding="utf-8") as f:
+            raw = f.read().strip()
 
-    geoms = []
+        if not raw:
+            print(f"[land-mask] file is empty: {LAND_FILE}")
+            return
 
-    if data.get("type") == "FeatureCollection":
-        for feature in data.get("features", []):
-            geom = feature.get("geometry")
-            if geom:
-                geoms.append(shape(geom))
-    else:
-        geoms.append(shape(data))
+        if not raw.startswith("{"):
+            print(f"[land-mask] file does not look like GeoJSON: {LAND_FILE}")
+            print(f"[land-mask] first 120 chars: {raw[:120]}")
+            return
 
-    if not geoms:
-        print("[land-mask] no geometries loaded")
-        return
+        data = json.loads(raw)
 
-    LAND_GEOM = unary_union(geoms)
-    LAND_PREP = prep(LAND_GEOM)
+        geoms = []
 
-    print("[land-mask] loaded successfully")
+        if data.get("type") == "FeatureCollection":
+            for feature in data.get("features", []):
+                geom = feature.get("geometry")
+                if geom:
+                    geoms.append(shape(geom))
+        else:
+            geoms.append(shape(data))
+
+        if not geoms:
+            print("[land-mask] no geometries loaded")
+            return
+
+        LAND_GEOM = unary_union(geoms)
+        LAND_PREP = prep(LAND_GEOM)
+
+        print("[land-mask] loaded successfully")
+
+    except Exception as e:
+        print(f"[land-mask] failed to load {LAND_FILE}: {e}")
+        LAND_GEOM = None
+        LAND_PREP = None
 
 load_land_mask()
 
