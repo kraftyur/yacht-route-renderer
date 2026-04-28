@@ -160,25 +160,21 @@ class RouteRequest(BaseModel):
     output_format: str = "png"
     style: str = "nautical_schematic"
 
-    # presentation | route | marine | local
     map_detail: str = "route"
 
     leg_distances_nm: Optional[List[Optional[float]]] = None
     leg_distances_nm_by_leg: Optional[Dict[str, float]] = None
 
-    # Если эти поля явно переданы, они переопределяют map_detail.
-    show_labels: bool | None = None
-    show_nm_distances: bool | None = None
+    show_labels: Optional[bool] = None
+    show_nm_distances: Optional[bool] = None
     show_route_lines: bool = True
     show_coastline: bool = True
-    show_seamarks: bool | None = None
+    show_seamarks: Optional[bool] = None
     show_direction_arrows: bool = True
 
-    # auto | fixed | straight
     curve_mode: str = "auto"
+    route_curvature: Optional[float] = None
 
-    # Если явно передан, переопределяет map_detail.
-    route_curvature: float | None = None
 
 def apply_map_detail(req: RouteRequest):
     """
