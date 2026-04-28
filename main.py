@@ -381,14 +381,15 @@ def render_route_map(req: RouteRequest):
 
     point_pixels = [latlon_to_image_px(p.lat, p.lon, meta) for p in req.waypoints]
 
-segments = []
-for a_wp, b_wp in zip(req.waypoints[:-1], req.waypoints[1:]):
-    curve_lonlat, chosen_curvature = choose_curve_lonlat(
-        a_wp,
-        b_wp,
-        curve_mode=req.curve_mode,
-        preferred_curvature=req.route_curvature,
-    )
+    segments = []
+    
+    for a_wp, b_wp in zip(req.waypoints[:-1], req.waypoints[1:]):
+        curve_lonlat, chosen_curvature = choose_curve_lonlat(
+            a_wp,
+            b_wp,
+            curve_mode=req.curve_mode,
+            preferred_curvature=req.route_curvature,
+        )
 
     curve_pixels = [latlon_to_image_px(lat, lon, meta) for lon, lat in curve_lonlat]
 
@@ -400,10 +401,10 @@ for a_wp, b_wp in zip(req.waypoints[:-1], req.waypoints[1:]):
         "curvature": chosen_curvature,
     })
 
-ROUTE_COLOR = "#1f77b4"
+    ROUTE_COLOR = "#1f77b4"
 
-# 1) линии маршрута + стрелки
-if req.show_route_lines:
+    # 1) линии маршрута + стрелки
+    if req.show_route_lines:
     for seg in segments:
         xs = [pt[0] for pt in seg["curve_pixels"]]
         ys = [pt[1] for pt in seg["curve_pixels"]]
@@ -432,12 +433,12 @@ if req.show_route_lines:
                 zorder=6,
             )
 
-# 2) иконки точек + подписи точек
-for i, (p, (x, y)) in enumerate(zip(req.waypoints, point_pixels)):
-    if p.type == "anchorage":
-        symbol = "⚓"
-    else:
-        symbol = "⛵"
+    # 2) иконки точек + подписи точек
+    for i, (p, (x, y)) in enumerate(zip(req.waypoints, point_pixels)):
+        if p.type == "anchorage":
+            symbol = "A"
+        else:
+            symbol = "M"
 
     ax.text(
         x,
@@ -464,8 +465,8 @@ for i, (p, (x, y)) in enumerate(zip(req.waypoints, point_pixels)):
             bbox=dict(boxstyle="round,pad=0.20", fc="white", ec="none", alpha=0.88),
         )
 
-# 3) подписи расстояний со смещением в сторону дуги
-if req.show_nm_distances:
+    # 3) подписи расстояний со смещением в сторону дуги
+    if req.show_nm_distances:
     for seg in segments:
         curve_pixels = seg["curve_pixels"]
         mid_idx = len(curve_pixels) // 2
