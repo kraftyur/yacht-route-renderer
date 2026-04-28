@@ -3,5 +3,3 @@ uvicorn
 pydantic
 matplotlib
 geopy
-shapely
-cartopy
