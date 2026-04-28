@@ -62,6 +62,22 @@ paths:
                           - waypoint
                         example: anchorage
 
+              leg_distances_nm_by_leg:
+                type: object
+                description: Optional partial nautical-mile distances keyed by zero-based route leg index. Use this when only some leg distances are known from a reliable source. For example, "0" is the distance from waypoint 1 to waypoint 2, "1" from waypoint 2 to waypoint 3. Do not invent distances. Omit unknown legs.
+                additionalProperties:
+                  type: number
+                example:
+                  "0": 25
+                  "2": 61
+                  
+              leg_distances_nm:
+                type: array
+                description: Optional complete list of nautical-mile distances for each route leg. Prefer leg_distances_nm_by_leg when only some distances are known. For N waypoints, provide N-1 distances; for circular routes with the final waypoint duplicating the first, include the closing leg distance as the final value. Omit this field if distances should be calculated automatically.
+                items:
+                  type: number
+                example: [25, 54, 61, 72]
+  
                 output_format:
                   type: string
                   enum:
