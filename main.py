@@ -277,7 +277,40 @@ def leg_distance_nm(a: Waypoint, b: Waypoint, leg_index: int, req: RouteRequest)
                     pass
 
     return nm_distance(a, b)
-    
+
+
+def leg_distances_output_for_segments(segments, req: RouteRequest):
+    output = []
+
+    for seg in segments:
+        dist = leg_distance_nm(
+            seg["a_wp"],
+            seg["b_wp"],
+            seg["leg_index"],
+            req,
+        )
+
+        source = "calculated"
+
+        if req.leg_distances_nm_by_leg is not None:
+            if str(seg["leg_index"]) in req.leg_distances_nm_by_leg:
+                source = "provided_by_leg"
+
+        if source == "calculated" and req.leg_distances_nm is not None:
+            if 0 <= seg["leg_index"] < len(req.leg_distances_nm):
+                if req.leg_distances_nm[seg["leg_index"]] is not None:
+                    source = "provided_list"
+
+        output.append({
+            "leg_index": seg["leg_index"],
+            "from": seg["a_wp"].name,
+            "to": seg["b_wp"].name,
+            "distance_nm": round(dist, 1),
+            "source": source,
+        })
+
+    return output
+
 
 def latlon_to_tile_xy(lat: float, lon: float, zoom: int):
     lat = max(min(lat, 85.05112878), -85.05112878)
@@ -741,6 +774,9 @@ def render_route_map(req: RouteRequest):
             "curvature": chosen_curvature,
         })
 
+    leg_distances_output = leg_distances_output_for_segments(segments, req)
+    total_distance_nm = sum(item["distance_nm"] for item in leg_distances_output)
+    
     ROUTE_COLOR = "#1f77b4"
 
     # линии маршрута + стрелки
@@ -870,4 +906,7 @@ def render_route_map(req: RouteRequest):
         "displayed_waypoints": len(render_waypoints),
         "input_waypoints": len(req.waypoints),
         "input_leg_distances": req.leg_distances_nm,
+        "input_leg_distances_by_leg": req.leg_distances_nm_by_leg,
+        "leg_distances": leg_distances_output,
+        "total_distance_nm": total_distance_nm,
     }
